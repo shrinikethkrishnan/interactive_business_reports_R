@@ -1,0 +1,245 @@
+---
+title: "Individual Course Project "
+author: "Shriniketh Krishnan"
+date: "2023-07-14"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+library(shiny)
+library(tidyverse)
+library(forecast)
+
+sales <- read_csv("https://raw.githubusercontent.com/multidis/hult-inter-bus-reports-r/main/forecasting/sales_weekly.csv")
+nweek_now <- max(sales$Week)
+
+ui <- navbarPage(
+  title = "Product demand forecasting web application",
+  
+  tabPanel("Introduction",
+           
+    h3("Welcome to the Product demand forecasting web application"),
+    p("Welcome to the Product demand forecasting web application!
+
+In this application, you can analyze historical sales data and generate forecasts for future time periods. We have a dataset that includes weekly sales data from 45 stores over a period of 142 weeks. The dataset provides valuable insights into sales trends, allowing businesses to make informed decisions based on past performance.
+
+By utilizing the various features of this application, you can customize the analysis, explore sales forecasts, and compare actual sales with predictions. 
+
+"),
+    p("Let's take a closer look at what you can do:
+      "),
+p("
+1. Sales Forecast: The Sales Forecast tab enables you to select a store and adjust the forecast horizon. By leveraging advanced forecasting techniques, we provide you with a forecast of sales for the selected store. You can observe the historical sales data, identify trends, and make informed decisions based on the projected sales for future weeks.
+"),
+p("
+
+2. Sales vs Predicted: In the Sales vs Predicted tab, you can select a store and adjust the forecast horizon. This chart compares the actual sales with the predicted sales for the selected store. By visualizing the accuracy of the sales forecast, you can gain insights into how well the predictions align with the actual sales data. Adjusting the forecast horizon allows you to explore different time periods and evaluate the forecast's performance.
+"),
+p("
+
+3. Forecast Confidence Intervals: The Forecast Confidence Intervals tab provides you with the sales forecast for the selected store, along with the chosen confidence interval. This visualization showcases the range of possible sales values, providing you with a sense of the uncertainty associated with the forecast. By exploring different confidence intervals, you can assess the potential variability in sales and plan accordingly.
+"),
+p("
+
+4. Quarterly Forecast: The Quarterly Forecast tab allows you to select a store and choose a quarter. By analyzing the sales forecast for the selected store and quarter, you can gain insights into projected sales for specific time periods. This visualization helps you understand the seasonality and patterns in sales, enabling you to plan and make informed decisions based on the forecasted sales."),
+    p("Additionally, we have a dedicated Data Table tab that displays the complete sales data for all stores. This tab provides you with an interactive table that you can explore to gain deeper insights into the sales performance of each store over time."),
+p("
+
+
+In summary, this Sales Forecasting Application empowers you to make data-driven decisions by analyzing historical sales data, generating accurate forecasts, and comparing actual sales with predictions. It allows you to explore various aspects of sales performance and plan effectively based on the forecasted sales. Let's dive in and discover valuable insights to drive your business forward!")
+  ),
+  tabPanel("Data Table",
+    dataTableOutput("salesTable"),
+    p("The Data Table tab in the Sales Forecasting Application presents the underlying sales data used for analysis and forecasting. This table provides a comprehensive view of historical sales information, enabling users to gain insights into sales patterns and trends over time.")
+  ),
+  tabPanel("Sales Forecast",
+    p("This chart displays the historical sales data for a selected store."),
+    sidebarPanel(
+      selectInput("storenum", label = "Select store: ",
+                  choices = 1:max(sales$Store), selected = 1),
+      sliderInput("horizon", label = "Forecast horizon (weeks): ",
+                  min = 2, max = 52, value = 8, step = 1)
+    ),
+    mainPanel(
+      plotOutput("saleshistory"),
+      p(" The sales forecast tab allows users to select a store and adjust the forecast horizon using a slider. The chart displays the historical sales data and provides a forecast of sales for the selected store. Users can observe the trend in sales over time and make informed decisions based on the projected sales for future weeks.")
+    )
+  ),
+  tabPanel("Sales vs Predicted",
+    p("This chart compares the actual sales with the predicted sales for the selected store."),
+    sidebarPanel(
+      selectInput("storenum2", label = "Select store:",
+                  choices = unique(sales$Store), selected = 3),
+      sliderInput("horizon2", label = "Forecast horizon (weeks):",
+                  min = 2, max = 52, value = 8, step = 1)
+    ),
+    mainPanel(
+      plotOutput("salesPredictionPlot"),
+      p("In the sales vs predicted tab, users can select a store and adjust the forecast horizon. The chart compares the actual sales with the predicted sales for the selected store. This visualization helps users understand the accuracy of the sales forecast by comparing it with the actual sales data. The forecast horizon can be adjusted using the slider to explore different time periods.")
+    )
+  ),
+  tabPanel("Forecast Confidence Intervals",
+    p("This chart shows the sales forecast for the selected store with the chosen confidence interval."),
+    sidebarPanel(
+      selectInput("storenum3", label = "Select store: ",
+                  choices = unique(sales$Store), selected = 1)
+      
+    ),
+    mainPanel(
+      plotOutput("confidenceIntervalPlot"),
+      p("  In the forecast confidence intervals tab, users can select a store and choose a confidence interval from the dropdown menu. The chart shows the sales forecast for the selected store with the chosen confidence interval. This visualization provides insights into the range of possible sales values, giving users a sense of the uncertainty associated with the forecast. Users can explore different confidence intervals to assess the potential variability in sales.")
+    )
+  ),
+  tabPanel("Quarterly Forecast",
+    p("This chart displays the sales forecast for the selected store and quarter."),
+    sidebarPanel(
+      selectInput("storenum4", label = "Select store: ",
+                  choices = unique(sales$Store), selected = 1)
+    ),
+    mainPanel(
+      plotOutput("quarterlyForecastPlot"),
+      p("The quarterly forecast tab enables users to select a store and choose a quarter from the dropdown menu. The chart displays the sales forecast for the selected store and quarter. This visualization helps users understand the projected sales for a specific quarter, allowing them to plan and make informed decisions based on the forecasted sales. Users can explore different quarters to assess the seasonality and patterns in sales.
+")
+    )
+  )
+)
+
+server <- function(input, output) {
+   output$salesTable <- renderDataTable({
+    sales
+  })
+  
+  output$salesPredictionPlot <- renderPlot({
+    store_num <- input$storenum2
+    horizon <- input$horizon2
+    
+    sales_hist <- sales %>%
+      filter(Store == store_num) %>%
+      subset(Week <= nweek_now - horizon)
+    sales_last <- sales %>%
+      filter(Store == store_num) %>%
+      subset(Week > nweek_now - horizon)
+    
+    sales_hist_ts <- ts(sales_hist$Weekly_Sales, frequency = 52)
+    
+    arima_model <- auto.arima(sales_hist_ts, seasonal.test = "seas")
+    arima_pred <- forecast(arima_model, h = horizon)
+    
+    sales_pred_eval <- data.frame(predicted = as.numeric(arima_pred$mean),
+                                  actual = sales_last$Weekly_Sales,
+                                  Week = sales_last$Week)
+    
+    ggplot(sales_pred_eval, aes(x = Week)) +
+      geom_line(aes(y = predicted, col = "Predicted"), size = 1.2) +
+      geom_line(aes(y = actual, col = "Actual"), size = 1.2) +
+      labs(x = "Week", y = "Sales", col = "") +
+      ggtitle("Sales vs Predicted") +
+      scale_color_manual(values = c("blue", "yellow"), labels = c("Predicted", "Actual")) +
+      theme_minimal() +
+      geom_text(aes(label = actual), vjust = -0.5, hjust = 0, col = "yellow")
+  })
+  output$salesPredictionPlot <- renderPlot({
+    store_num <- input$storenum2
+    horizon <- input$horizon2
+    
+    sales_hist <- sales %>%
+      filter(Store == store_num) %>%
+      subset(Week <= nweek_now - horizon)
+    sales_last <- sales %>%
+      filter(Store == store_num) %>%
+      subset(Week > nweek_now - horizon)
+    
+    sales_hist_ts <- ts(sales_hist$Weekly_Sales, frequency = 52)
+    
+    arima_model <- auto.arima(sales_hist_ts, seasonal.test = "seas")
+    arima_pred <- forecast(arima_model, h = horizon)
+    
+    sales_pred_eval <- data.frame(predicted = as.numeric(arima_pred$mean),
+                                  actual = sales_last$Weekly_Sales,
+                                  Week = sales_last$Week)
+    
+    ggplot(sales_pred_eval, aes(x = Week)) +
+      geom_line(aes(y = predicted, col = "Predicted"), size = 1.2) +
+      geom_line(aes(y = actual, col = "Actual"), size = 1.2) +
+      labs(x = "Week", y = "Sales", col = "") +
+      ggtitle("Sales vs Predicted") +
+      scale_color_manual(values = c("blue", "yellow"), labels = c("Predicted", "Actual")) +
+      theme_minimal()
+  })
+  
+  output$saleshistory <- renderPlot({
+    horiz <- input$horizon
+    
+    sales_ts <- ts(sales %>% filter(Store == input$storenum) %>%
+                     select(Weekly_Sales), frequency = 52)
+    arima_model <- auto.arima(sales_ts, seasonal.test = "seas")
+    arima_pred <- forecast(arima_model, h = horiz)
+    
+    sales_pred <- data.frame(Sales_Predicted = as.numeric(arima_pred$mean),
+                             Week = (nweek_now + 1):(nweek_now + horiz))
+    
+    ggplot(sales_pred, aes(Week, Sales_Predicted)) +
+      geom_line(size = 1.2) +
+      labs(x = "Weeks Ahead", y = "Weekly Sales Forecast") +
+      ggtitle("Weekly Sales Forecast") +
+      theme_minimal()
+  })
+  
+  output$confidenceIntervalPlot <- renderPlot({
+    store_num <- input$storenum3
+    interval <- input$interval
+    
+    sales_filtered <- sales %>%
+      filter(Store == store_num)
+    
+    sales_ts <- ts(sales_filtered$Weekly_Sales, frequency = 52)
+    arima_model <- auto.arima(sales_ts, seasonal.test = "seas")
+    arima_pred <- forecast(arima_model, h = 4)
+    
+    plot(arima_pred, include = 1:4, main = "Sales Forecast with Confidence Intervals",
+         xlab = "Week", ylab = "Sales", col = "darkblue", fill = "lightblue")
+  })
+  
+  output$quarterlyForecastPlot <- renderPlot({
+  store_num <- input$storenum4
+  
+  sales_filtered <- sales %>%
+    filter(Store == store_num)
+  
+  sales_ts <- ts(sales_filtered$Weekly_Sales, frequency = 52)
+  arima_model <- auto.arima(sales_ts, seasonal.test = "seas")
+  
+  start_week <- nweek_now + 1
+  end_week <- start_week + 51  # Assuming a year consists of 52 weeks
+  
+  quarterly_forecast <- forecast(arima_model, h = end_week - start_week + 1)
+  quarterly_forecast_df <- data.frame(
+    Week = start_week:end_week,
+    Sales_Forecast = as.numeric(quarterly_forecast$mean),
+    Quarter = rep(c("Q1", "Q2", "Q3", "Q4"), each = 13)
+  )
+  
+  ggplot(quarterly_forecast_df, aes(x = Week, y = Sales_Forecast, group = Quarter, color = Quarter)) +
+    geom_line(size = 1.2) +
+    labs(x = "Week", y = "Sales Forecast") +
+    ggtitle("Sales Forecast by Quarter") +
+    theme_minimal()
+})
+
+}
+
+shinyApp(ui, server)
+
+
+
+
+
+
+```
