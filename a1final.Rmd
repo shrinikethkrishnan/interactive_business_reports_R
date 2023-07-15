@@ -16,6 +16,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(shiny)
 library(tidyverse)
 library(forecast)
+library(gridExtra)
 
 sales <- read_csv("https://raw.githubusercontent.com/multidis/hult-inter-bus-reports-r/main/forecasting/sales_weekly.csv")
 nweek_now <- max(sales$Week)
@@ -226,15 +227,22 @@ server <- function(input, output) {
     Quarter = rep(c("Q1", "Q2", "Q3", "Q4"), each = 13)
   )
   
-  ggplot(quarterly_forecast_df, aes(x = Week, y = Sales_Forecast, group = Quarter, color = Quarter)) +
-    geom_line(size = 1.2) +
-    labs(x = "Week", y = "Sales Forecast") +
-    ggtitle("Sales Forecast by Quarter") +
-    theme_minimal()
+  quarterly_plots <- list()
+  for (quarter in unique(quarterly_forecast_df$Quarter)) {
+    plot_data <- quarterly_forecast_df %>% filter(Quarter == quarter)
+    
+    quarterly_plots[[quarter]] <- ggplot(plot_data, aes(x = Week, y = Sales_Forecast)) +
+      geom_line(size = 1.2) +
+      labs(x = "Week", y = "Sales Forecast") +
+      ggtitle(paste("Sales Forecast for Quarter", quarter)) +
+      theme_minimal()
+  }
+  
+  grid.arrange(grobs = quarterly_plots, nrow = 2, ncol = 2)
 })
-
+  
+  
 }
-
 shinyApp(ui, server)
 
 
